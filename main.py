@@ -31,6 +31,9 @@ class Graph:
     def get_adjacency_matrix(self):
         return nx.adjacency_matrix(self.graph).todense()
 
+    def get_vertices(self):
+        return self.nodes
+
     def get_nodes_count(self):
         return len(self.nodes)
 
@@ -46,7 +49,7 @@ class DomaticNumberQAOA:
         self.ancilla_qubit_count = 1
         self.total_qubit_count = self.work_qubit_count + self.ancilla_qubit_count
 
-        self.num = num  # K
+        self.K = num  # K
 
     def _prepare_circuit(self):
         qr = QuantumRegister(self.work_qubit_count, 'q')
@@ -81,13 +84,13 @@ class DomaticNumberQAOA:
         """
             Apply check if each vertex is exactly in one DOM set
         """
-        if self.num > 2:
-            for qubit in range(0, self.work_qubit_count, self.num):
+        if self.K > 2:
+            for qubit in range(0, self.work_qubit_count, self.K):
                 qc_p.rz(2 * gamma, qubit)
 
-        for i in range(0, self.work_qubit_count, self.num):  # for each vertex
-            for j in range(i, i + self.num):  # for each DOM-SET (color)
-                for k in range(j + 1, i + self.num):
+        for i in range(0, self.work_qubit_count, self.K):  # for each vertex
+            for j in range(i, i + self.K):  # for each DOM-SET (color)
+                for k in range(j + 1, i + self.K):
                     qc_p.rzz(2 * gamma, j, k)
                     qc_p.barrier()
 
@@ -100,25 +103,21 @@ class DomaticNumberQAOA:
         ancilla_qubit = self.total_qubit_count - 1
         count_nodes = self.graph.get_nodes_count()
 
-        for dom_set in range(0, self.num):  # for each DOM-SET (color)
+        for dom_set in range(0, self.K):  # for each DOM-SET (color)
             for vertex in range(0, count_nodes):  # for each vertex
 
-                work_vertices = self._get_dominating_set_vertices(vertex)
-                work_qubits = self._get_dominating_set_qubits_by_set(work_vertices, dom_set)
+                work_vertices = self._get_neighbors(vertex)
+                work_qubits = self._get_neighbors_qubits_by_set(work_vertices, dom_set)
 
                 for qubit in work_qubits:  # X gate for each DOM-SET (color)
                     qc_p.x(qubit)
-                qc_p.barrier()
 
                 qc_p.mcx(work_qubits, ancilla_qubit)  # C..C NOT, Controlled: each vertex, Target: ancilla
-                qc_p.barrier()
 
                 for i in work_qubits:  # Controlled RZ, Controlled: ancilla, Target: each vertex
                     qc_p.crz(2 * gamma, ancilla_qubit, i)
-                qc_p.barrier()
 
                 qc_p.mcx(work_qubits, ancilla_qubit)  # C..C NOT, Controlled: each vertex, Target: ancilla
-                qc_p.barrier()
 
                 for qubit in work_qubits:  # X gate for each DOM-SET (color)
                     qc_p.x(qubit)
@@ -126,24 +125,24 @@ class DomaticNumberQAOA:
 
         return qc_p
 
-    def _get_dominating_set_vertices(self, vertex):
+    def _get_neighbors(self, vertex):
         adjacency_matrix = self.graph.get_adjacency_matrix()
 
         row = adjacency_matrix[vertex]  # row corresponding to vertex v
-        work_vertices = [vertex]
+        neighbors = [vertex]
 
         for i in range(row.shape[0]):
             for j in range(row.shape[1]):
                 if row[i, j] == 1:
-                    work_vertices.append(j)  # neighbors
+                    neighbors.append(j)  # neighbors
 
-        return work_vertices
+        return neighbors
 
-    def _get_dominating_set_qubits_by_set(self, vertices, set_number):
+    def _get_neighbors_qubits_by_set(self, vertices, set_number):
         work_qubits = []
 
         for qubit in vertices:
-            work_qubits.append(set_number + qubit * self.num)
+            work_qubits.append(set_number + qubit * self.K)
 
         return work_qubits
 
@@ -171,36 +170,53 @@ class DomaticNumberQAOA:
 
         return qc
 
+    def C_in_one_set(self, bit_string):
+        #  Each Vertex only in one Dominating Set
+        for i in range(0, len(bit_string), self.K):
+            bit_vertex = bit_string[i:i + self.K]
+            if bit_vertex.count('1') != 1:
+                return 0
+
+        return -1
+
+    def C_each_set_is_dominating(self, bit_string):
+        #  Each Set is Dominating Set
+        count_nodes = self.graph.get_nodes_count()
+
+        for k in range(0, self.K):  # for each DOM-SET
+            if self._is_dominating_set_in_vertices(bit_string, k):
+                for vertex in range(0, count_nodes):
+
+                    neighbors = self._get_neighbors(vertex)
+                    neighbors_qubits = self._get_neighbors_qubits_by_set(neighbors, k)
+
+                    is_visited = 0
+                    is_visited += sum(int(bit_string[i]) for i in neighbors_qubits)
+                    if is_visited == 0:
+                        return 0
+
+        return -1
+
     def get_bitstring_weight(self, bit_string):
         """
             Given a bitstring as a solution, this function returns
             the number of edges shared between the two partitions of the graph.
         """
-        weight = 0
-        for i in range(0, len(bit_string), self.num):
-            bit_vertex = bit_string[i:i+self.num]
-            penalty = bit_vertex.count('1') - 1
-            if penalty == 0:
-                weight = -1
-            else:
-                return 0
+        weight = self.C_in_one_set(bit_string)
+        weight2 = self.C_each_set_is_dominating(bit_string)
 
-        count_nodes = self.graph.get_nodes_count()
+        if weight2 == -1:
+            print(bit_string)
+        return weight+weight2
 
-        for dom_set in range(0, self.num):  # for each DOM-SET (color)
-            for vertex in range(0, count_nodes):
-                work_vertices = self._get_dominating_set_vertices(vertex)
-                work_qubits = self._get_dominating_set_qubits_by_set(work_vertices, dom_set)
 
-                is_visited = 0
+    def _is_dominating_set_in_vertices(self, bit_string, dom_set):
+        dom_set_qubits = self._get_neighbors_qubits_by_set(self.graph.get_vertices(), dom_set)
+        for i in dom_set_qubits:
+            if bit_string[i] == '1':
+                return True
 
-                for i in work_qubits:
-                    is_visited += int(bit_string[i])
-
-                if is_visited == 0:
-                    return 0
-
-        return -1
+        return False
 
     def compute_expectation(self, counts):
         """
@@ -310,11 +326,11 @@ if __name__ == '__main__':
 
     # Demonstrate QAOA circuit template
     qc_qaoa = dom_number.create_qaoa_circuit_template(qc_0, qc_problem, qc_mix)
-    qc_qaoa.decompose().draw(output='mpl')
+    qc_qaoa.draw(output='mpl')
 
     # 2. Step - Calculate expectation
     expectation = dom_number.get_expectation(2048)
-    res = minimize(expectation, [1.0, 1.0], method='COBYLA')
+    res = minimize(expectation, [1.0, 1.0]*5, method='COBYLA')
 
     # 3. Step - Analyzing the results
     backend = Aer.get_backend('aer_simulator')
