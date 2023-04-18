@@ -42,7 +42,7 @@ class Graph:
 
 
 class DomaticNumberQAOA:
-    def __init__(self, graph, num):
+    def __init__(self, graph, num, p):
         self.graph = graph
 
         self.work_qubit_count = len(graph.nodes * num)
@@ -50,6 +50,7 @@ class DomaticNumberQAOA:
         self.total_qubit_count = self.work_qubit_count + self.ancilla_qubit_count
 
         self.K = num  # K
+        self.p = p
 
     def _prepare_circuit(self):
         qr = QuantumRegister(self.work_qubit_count, 'q')
@@ -106,8 +107,7 @@ class DomaticNumberQAOA:
         for dom_set in range(0, self.K):  # for each DOM-SET (color)
             for vertex in range(0, count_nodes):  # for each vertex
 
-                work_vertices = self._get_neighbors(vertex)
-                work_qubits = self._get_neighbors_qubits_by_set(work_vertices, dom_set)
+                work_qubits = self._get_neighbors_qubits_by_set(vertex, dom_set)
 
                 for qubit in work_qubits:  # X gate for each DOM-SET (color)
                     qc_p.x(qubit)
@@ -138,11 +138,21 @@ class DomaticNumberQAOA:
 
         return neighbors
 
-    def _get_neighbors_qubits_by_set(self, vertices, set_number):
+    def _get_neighbors_qubits_by_set(self, vertex, set_number):
         work_qubits = []
+        vertices = self._get_neighbors(vertex)
 
         for qubit in vertices:
             work_qubits.append(set_number + qubit * self.K)
+
+        return work_qubits
+
+    def _get_all_neighbors_qubits_by_set(self, set_number):
+        work_qubits = []
+        vertices = self.graph.get_vertices()
+
+        for vertex in vertices:
+            work_qubits.append(self._get_neighbors_qubits_by_set(vertex, set_number))
 
         return work_qubits
 
@@ -187,12 +197,8 @@ class DomaticNumberQAOA:
             if self._is_dominating_set_in_vertices(bit_string, k):
                 for vertex in range(0, count_nodes):
 
-                    neighbors = self._get_neighbors(vertex)
-                    neighbors_qubits = self._get_neighbors_qubits_by_set(neighbors, k)
-
-                    is_visited = 0
-                    is_visited += sum(int(bit_string[i]) for i in neighbors_qubits)
-                    if is_visited == 0:
+                    neighbors_qubits = self._get_neighbors_qubits_by_set(vertex, k)
+                    if all(bit_string[i] == '0' for i in neighbors_qubits):
                         return 0
 
         return -1
@@ -205,13 +211,12 @@ class DomaticNumberQAOA:
         weight = self.C_in_one_set(bit_string)
         weight2 = self.C_each_set_is_dominating(bit_string)
 
-        if weight2 == -1:
-            print(bit_string)
         return weight+weight2
 
-
     def _is_dominating_set_in_vertices(self, bit_string, dom_set):
-        dom_set_qubits = self._get_neighbors_qubits_by_set(self.graph.get_vertices(), dom_set)
+        dom_set_qubits = self._get_all_neighbors_qubits_by_set(dom_set)
+        dom_set_qubits = list(set([item for sublist in dom_set_qubits for item in sublist]))
+
         for i in dom_set_qubits:
             if bit_string[i] == '1':
                 return True
@@ -221,10 +226,8 @@ class DomaticNumberQAOA:
     def compute_expectation(self, counts):
         """
         Computes expectation value based on measurement results
-
         Args:
             counts: dict => (key,value)=(bitstring, count)
-
         Returns:
             avg: float => expectation value
         """
@@ -241,10 +244,8 @@ class DomaticNumberQAOA:
     def create_qaoa_circuit(self, theta):
         """
         Creates a parametrized QAOA circuit
-
         Args:
             theta: list of unitary parameters
-
         Returns:
             qc: qiskit circuit
         """
@@ -271,7 +272,6 @@ class DomaticNumberQAOA:
     def get_expectation(self, shots=512):
         """
         Runs parametrized circuit
-
         Args:
             p: int,
                Number of repetitions of unitaries
@@ -283,16 +283,59 @@ class DomaticNumberQAOA:
 
         def execute_circuit(theta):
             qc = self.create_qaoa_circuit(theta)
-            counts = execute(qc, backend, seed_simulator=10, nshots=512).result().get_counts()
-               # backend.run(qc,seed_simulator=10, nshots=512).result().get_counts()
+            counts = execute(qc, backend, seed_simulator=10).result().get_counts()
 
             return self.compute_expectation(counts)
 
         return execute_circuit
 
 
+class Testing:
+    @staticmethod
+    def k_2_n_1_p_1():
+        return 2, [0], [], 1
+
+    @staticmethod
+    def k_2_n_2_p_1():
+        return 2, [0, 1], [], 1
+
+    @staticmethod
+    def k_2_n_3_p_1():
+        return 2, [0, 1, 2], [], 1
+
+    @staticmethod
+    def k_2_n_6_p_1():
+        return 2, [0, 1, 2, 3, 4, 5], [], 1
+
+    @staticmethod
+    def k_2_n_6_p_5():
+        return 2, [0, 1, 2, 3, 4, 5], [], 5
+
+    @staticmethod
+    def k_3_n_2_p_1():
+        return 3, [0, 1], [], 1
+
+    @staticmethod
+    def k_3_n_2_p_5():
+        return 3, [0, 1], [], 5
+
+    @staticmethod
+    def k_3_n_3_p_1():
+        return 3, [0, 1, 2], [], 1
+
+    @staticmethod
+    def k_3_n_3_p_7():
+        return 3, [0, 1, 2], [], 7
+
+    @staticmethod
+    def k_3_n_6_p_7():
+        return 3, [0, 1, 2, 3, 4, 5], [], 7
+
+    @staticmethod
+    def k_2_n_3_p_1_Second():
+        return 2, [0, 1, 2], [(0, 1), (1, 2)], 1
+
 if __name__ == '__main__':
-    # 0. Step - Prepare Input: Graph, qubit count
     #nodes = [0, 1, 2, 3, 4]
     #edges = [(0, 1), (0, 2), (1, 2), (1, 3), (2, 4), (3, 4)]
 
@@ -302,27 +345,21 @@ if __name__ == '__main__':
     #nodes = [0, 1, 2, 3]
     #edges = [(0, 1), (1, 2), (2, 3), (3, 0)]
 
-    nodes = [0, 1, 2]
-    edges = [(0, 1), (1, 2)]
+   # nodes = [0, 1, 2, 3, 4, 5]
+    #edges = [(0, 1), (1, 2)]
 
-    K = 2
+    K, nodes, edges, p = Testing.k_2_n_3_p_1_Second()
 
     # 1. Step - Create Template
     graph = Graph(nodes, edges)
-    #graph.draw_graph()
 
     # 1.1. Step - Apply Hadamard
-    dom_number = DomaticNumberQAOA(graph, K)
+    dom_number = DomaticNumberQAOA(graph, K, p)
     qc_0 = dom_number.create_hadamard_circuit()
-    #qc_0.draw(output='mpl')
 
-    # 1.2. Step - Create Problem Hamiltonian
+    # 1.2. Step - Create Problem and Mix Hamiltonian
     qc_problem = dom_number.create_problem_hamiltonian()
-    #qc_problem.draw(output='mpl')
-
-    # 1.3. Step - Create Mix Hamiltonian
     qc_mix = dom_number.create_mix_hamiltonian()
-    #qc_mix.draw(output='mpl')
 
     # Demonstrate QAOA circuit template
     qc_qaoa = dom_number.create_qaoa_circuit_template(qc_0, qc_problem, qc_mix)
@@ -330,7 +367,7 @@ if __name__ == '__main__':
 
     # 2. Step - Calculate expectation
     expectation = dom_number.get_expectation(2048)
-    res = minimize(expectation, [1.0, 1.0]*5, method='COBYLA')
+    res = minimize(expectation, [1.0, 1.0]*p, method='COBYLA')
 
     # 3. Step - Analyzing the results
     backend = Aer.get_backend('aer_simulator')
@@ -351,5 +388,3 @@ if __name__ == '__main__':
     plot_histogram(ordered_counts)
 
     print("Problem has been solved successfully")
-
-{'10': 530, '01': 494}
