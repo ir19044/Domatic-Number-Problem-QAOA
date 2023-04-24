@@ -1,50 +1,48 @@
 """
-    Based on:
-    https://learn.qiskit.org/course/ch-applications/solving-combinatorial-optimization-problems-using-qaoa
+    To create the QAOA for the Domatic Number, the QAOA for the MAX-CUT problem was analyzed.
+        https://learn.qiskit.org/course/ch-applications/solving-combinatorial-optimization-problems-using-qaoa
 """
-import json
-
-from qiskit import QuantumCircuit
-from qiskit import Aer, execute, QuantumRegister, ClassicalRegister
-from qiskit.circuit import Parameter
+from qiskit import QuantumCircuit, Aer, execute, QuantumRegister, ClassicalRegister
 from scipy.optimize import minimize
+from qiskit.circuit import Parameter
 from qiskit.visualization import plot_histogram
 import networkx as nx
+import json
 from collections import OrderedDict
 
 
 class Graph:
-    def __init__(self, nodes, edges):
-        self.nodes = nodes
-        self.edges = edges
+    """
+        Represents a graph data structure and provides methods to work with it.
+    """
+    def __init__(self, n, e):
+        self.nodes = n
+        self.edges = e
 
         self.graph = nx.Graph()
         self.graph.add_nodes_from(self.nodes)
         self.graph.add_edges_from(self.edges)
 
-    def get_graph(self):
-        return self.graph
-
     def get_adjacency_matrix(self):
         return nx.adjacency_matrix(self.graph).todense()
-
-    def get_vertices(self):
-        return self.nodes
 
     def draw_graph(self):
         nx.draw(self.graph, with_labels=True, alpha=0.8, node_size=500)
 
 
 class DomaticNumberQAOA:
+    """
+        Create QAOA circuit, calculate expectation value.
+        Solve K-Domatic Number, where K is upper bound for count of dominating sets.
+    """
     def __init__(self, graph, k, p):
         self.graph = graph
 
         self.work_qubit_count = len(graph.nodes) * k
-        self.ancilla_qubit_count = 1
-        self.total_qubit_count = self.work_qubit_count + self.ancilla_qubit_count
+        self.total_qubit_count = self.work_qubit_count + 1  # 1 ancilla qubit
 
-        self.K = k  # K
-        self.p = p
+        self.K = k  # Max count of dominating sets
+        self.p = p  # Circuit depth
 
     def _prepare_circuit(self):
         qr = QuantumRegister(self.work_qubit_count, 'q')
@@ -53,11 +51,67 @@ class DomaticNumberQAOA:
 
         return QuantumCircuit(qr, anc, cr)
 
+    def __get_neighbors(self, vertex):
+        """
+            Returns:
+                 Given vertex and all corresponding neighbors in a graph.
+        """
+        adjacency_matrix = self.graph.get_adjacency_matrix()
+
+        row = adjacency_matrix[vertex]  # row corresponding to vertex v
+        neighbors = [vertex]
+
+        for i in range(row.shape[0]):
+            for j in range(row.shape[1]):
+                if row[i, j] == 1:
+                    neighbors.append(j)
+
+        return neighbors
+
+    def __get_neighbors_qubits_by_set_vertex(self, vertex, set_number):
+        """
+            Returns:
+                 Numbers of qubits in circuit for the given vertex and all corresponding neighbors in a graph.
+        """
+        work_qubits = []
+        vertices = self.__get_neighbors(vertex)
+
+        for qubit in vertices:
+            work_qubits.append(set_number + qubit * self.K)
+
+        return work_qubits
+
+    def __get_vertices_qubits_by_set(self, set_number):
+        """
+            Returns:
+                 Numbers of qubits in circuit for the given set.
+        """
+        work_qubits = []
+        vertices = self.graph.get_vertices()
+
+        for vertex in vertices:
+            work_qubits.append(self.__get_neighbors_qubits_by_set_vertex(vertex, set_number))
+
+        return work_qubits
+
+    def __get_qubits_by_dominating_set(self, dom_set):
+        work_qubits = []
+        vertices_count = self.work_qubit_count
+        for qubit in range(dom_set, vertices_count, self.K):
+            work_qubits.append(qubit)
+
+        return work_qubits
+
     def create_hadamard_circuit(self):
         qc_h = self._prepare_circuit()
         return self.apply_hadamard(qc_h)
 
     def apply_hadamard(self, qc_h):
+        """
+            1-st QAOA step - Apply Hadamard for each qubit (except ancilla).
+            Returns:
+                Circuit with Hadamard gates.
+        """
         for i in range(0, self.work_qubit_count):
             qc_h.h(i)
 
@@ -65,20 +119,27 @@ class DomaticNumberQAOA:
 
     def create_problem_hamiltonian(self):
         qc_p = self._prepare_circuit()
-        gamma = Parameter("$\\gamma$")
 
-        return self.apply_problem_hamiltonian(qc_p, gamma)
+        return self.apply_problem_hamiltonian(qc_p, Parameter("$\\gamma$"))
 
     def apply_problem_hamiltonian(self, qc_p, gamma):
+        """
+            2-nd QAOA step - Problem Hamiltonian. Consists of two parts.
+                1st part: Check that each vertex is "colored" in only one "color" (belongs to only one set).
+                2nd part: Check that each set is dominating.
+            Returns:
+                Circuit with Problem Hamiltonian gates.
+        """
         qc_p = self.vertex_in_one_set(qc_p, gamma)
-        qc_p = self.each_vertex_set_dominating(qc_p, gamma)
-        qc_p = self.count_dominating_set(qc_p, gamma)
+        qc_p = self.each_vertices_set_dominating(qc_p, gamma)
 
         return qc_p
 
     def vertex_in_one_set(self, qc_p, gamma):
         """
-            Apply check if each vertex is exactly in one DOM set
+            2-nd QAOA step.
+            1st part for Problem Hamiltonian.
+                Check that each vertex belongs to only one set.
         """
         if self.K > 2:
             for qubit in range(0, self.work_qubit_count, self.K):
@@ -92,9 +153,11 @@ class DomaticNumberQAOA:
 
         return qc_p
 
-    def each_vertex_set_dominating(self, qc_p, gamma):
+    def each_vertices_set_dominating(self, qc_p, gamma):
         """
-            Apply check if each vertex (color) set is DOM-SET
+            2-nd QAOA step.
+            2nd part for Problem Hamiltonian.
+                Check if each vertex set is DOM-SET.
         """
         ancilla_qubit = self.total_qubit_count - 1
         count_nodes = len(self.graph.nodes)
@@ -102,9 +165,9 @@ class DomaticNumberQAOA:
         for dom_set in range(0, self.K):  # for each DOM-SET (color)
             for vertex in range(0, count_nodes):  # for each vertex
 
-                work_qubits = self._get_neighbors_qubits_by_set(vertex, dom_set)
+                work_qubits = self.__get_neighbors_qubits_by_set_vertex(vertex, dom_set)
 
-                for qubit in work_qubits:  # X gate for each DOM-SET (color)
+                for qubit in work_qubits:  # X gate for each DOM-SET
                     qc_p.x(qubit)
 
                 qc_p.mcx(work_qubits, ancilla_qubit)  # C..C NOT, Controlled: each vertex, Target: ancilla
@@ -114,91 +177,34 @@ class DomaticNumberQAOA:
 
                 qc_p.mcx(work_qubits, ancilla_qubit)  # C..C NOT, Controlled: each vertex, Target: ancilla
 
-                for qubit in work_qubits:  # X gate for each DOM-SET (color)
+                for qubit in work_qubits:  # X gate for each DOM-SET
                     qc_p.x(qubit)
                 qc_p.barrier()
 
         return qc_p
 
-    def count_dominating_set(self, qc_p, gamma):
-        """
-            Check count of DOM sets
-        """
-        ancilla_qubit = self.total_qubit_count - 1
-
-        for dom_set in range(0, self.K):  # for each DOM-SET (color)
-
-            # find ALL vertices with color K!!!
-            work_qubits = self._get_qubits_by_dominating_set(dom_set)
-
-            for qubit in work_qubits:  # X gate for each DOM-SET (color)
-                qc_p.x(qubit)
-
-            qc_p.mcx(work_qubits, ancilla_qubit)  # C..C NOT, Controlled: each vertex, Target: ancilla
-
-            for i in work_qubits:  # Controlled RZ, Controlled: ancilla, Target: each vertex
-                qc_p.crz(2 * gamma, ancilla_qubit, i)
-
-            qc_p.mcx(work_qubits, ancilla_qubit)  # C..C NOT, Controlled: each vertex, Target: ancilla
-
-            for qubit in work_qubits:  # X gate for each DOM-SET (color)
-                qc_p.x(qubit)
-            qc_p.barrier()
-
-        return qc_p
-
-    def _get_neighbors(self, vertex):
-        adjacency_matrix = self.graph.get_adjacency_matrix()
-
-        row = adjacency_matrix[vertex]  # row corresponding to vertex v
-        neighbors = [vertex]
-
-        for i in range(row.shape[0]):
-            for j in range(row.shape[1]):
-                if row[i, j] == 1:
-                    neighbors.append(j)  # neighbors
-
-        return neighbors
-
-    def _get_neighbors_qubits_by_set(self, vertex, set_number):
-        work_qubits = []
-        vertices = self._get_neighbors(vertex)
-
-        for qubit in vertices:
-            work_qubits.append(set_number + qubit * self.K)
-
-        return work_qubits
-
-    def _get_all_neighbors_qubits_by_set(self, set_number):
-        work_qubits = []
-        vertices = self.graph.get_vertices()
-
-        for vertex in vertices:
-            work_qubits.append(self._get_neighbors_qubits_by_set(vertex, set_number))
-
-        return work_qubits
-
-    def _get_qubits_by_dominating_set(self, dom_set):
-        work_qubits = []
-        vertices_count = self.work_qubit_count
-        for qubit in range(dom_set, vertices_count, self.K):
-            work_qubits.append(qubit)
-
-        return work_qubits
-
     def create_mix_hamiltonian(self):
         qc_m = self._prepare_circuit()
-        beta = Parameter("$\\beta$")
 
-        return self.apply_mix_hamiltonian(qc_m, beta)
+        return self.apply_mix_hamiltonian(qc_m, Parameter("$\\beta$"))
 
     def apply_mix_hamiltonian(self, qc_m, beta):
+        """
+            3-rd QAOA step - Apply Mix Hamiltonian for each qubit (except ancilla)
+            Returns:
+                Circuit with Mix Hamiltonian gates.
+        """
         for i in range(0, self.work_qubit_count):
             qc_m.rx(2 * beta, i)
 
         return qc_m
 
     def create_qaoa_circuit_template(self):
+        """
+            Apply QAOA steps to solve K-Domatic Number.
+            Returns:
+                Circuit for K-Domatic Number.
+        """
         qc = self._prepare_circuit()
 
         qc = self.apply_hadamard(qc)
@@ -210,78 +216,14 @@ class DomaticNumberQAOA:
 
         return qc
 
-    def C_in_one_set(self, bit_string):
-        #  Each Vertex only in one Dominating Set
-        weight = 0
-
-        for i in range(0, len(bit_string), self.K):
-            bit_vertex = bit_string[i:i + self.K]
-            if bit_vertex.count('1') == 1:
-                weight += 1
-
-        return weight
-
-    def C_each_set_is_dominating(self, bit_string):
-        #  Each Set is Dominating Set
-
-        weight = 0
-        count_nodes = len(self.graph.nodes)
-
-        for k in range(0, self.K):  # for each DOM-SET
-            if self._is_dominating_set_in_vertices(bit_string, k):
-                for vertex in range(0, count_nodes):
-
-                    neighbors_qubits = self._get_neighbors_qubits_by_set(vertex, k)
-                    if all(bit_string[i] == '0' for i in neighbors_qubits):
-                        break
-                weight += 1
-
-        return weight
-
-    def C_count_dominating(self, bit_string):
-        # Count(DOM-SETS) = K
-
-        weight = 0
-
-        for i in range(self.K):
-            for j in range(i, len(bit_string), self.K):
-                if bit_string[j] == '1':
-                    weight += 1
-                    break
-
-        return weight
-
-    def get_bitstring_weight(self, bit_string):
-        """
-            Given a bitstring as a solution, this function returns
-            the number of edges shared between the two partitions of the graph.
-        """
-        weight = 0
-        weight -= self.C_in_one_set(bit_string)
-        weight -= self.C_each_set_is_dominating(bit_string)
-        weight -= self.C_count_dominating(bit_string)
-
-        return weight
-
-    def _is_dominating_set_in_vertices(self, bit_string, dom_set):
-        dom_set_qubits = self._get_all_neighbors_qubits_by_set(dom_set)
-        dom_set_qubits = list(set([item for sublist in dom_set_qubits for item in sublist]))
-
-        for i in dom_set_qubits:
-            if bit_string[i] == '1':
-                return True
-
-        return False
-
     def compute_expectation(self, counts):
         """
-        Computes expectation value based on measurement results
-        Args:
-            counts: dict => (key,value)=(bitstring, count)
-        Returns:
-            avg: float => expectation value
+            Computes expectation value based on measurement results
+            Args:
+                Dict (key,value)=(bitstring, count)
+            Returns:
+                Expectation value
         """
-
         avg = 0
         sum_count = 0
         for bitstring, count in counts.items():
@@ -291,13 +233,80 @@ class DomaticNumberQAOA:
 
         return avg / sum_count
 
+    def get_bitstring_weight(self, bit_string):
+        """
+            Given a bitstring as a solution.
+            Returns:
+                Cost Function value
+        """
+        weight = 0
+        weight -= self.cost_function_vertex_in_one_set(bit_string)
+        weight -= self.cost_function_each_set_is_dominating(bit_string)
+
+        return weight
+
+    def cost_function_vertex_in_one_set(self, bit_string):
+        """
+            1st Cost Function part.
+            Returns:
+                Number of vertices which belongs to only one DOM-set.
+        """
+        weight = 0
+
+        for i in range(0, len(bit_string), self.K):
+            bit_vertex = bit_string[i:i + self.K]
+            if bit_vertex.count('1') == 1:
+                weight += 1
+
+        return weight
+
+    def cost_function_each_set_is_dominating(self, bit_string):
+        """
+            2nd Cost Function part.
+            Returns:
+                Number of dominating sets.
+        """
+        weight = 0
+        count_nodes = len(self.graph.nodes)
+
+        for k in range(0, self.K):  # for each DOM-SET
+            is_dom_set = True
+
+            for vertex in range(0, count_nodes):
+                neighbors_qubits = self.__get_neighbors_qubits_by_set_vertex(vertex, k)
+
+                if all(bit_string[i] == '0' for i in neighbors_qubits):
+                    is_dom_set = False
+                    break
+
+            if is_dom_set:
+                weight += 1
+
+        return weight
+
+    def get_expectation(self, shots=512):
+        """
+            Runs parametrized circuit. Executes the circuit on the chosen backend.
+        """
+
+        backend = Aer.get_backend('qasm_simulator')
+        backend.shots = shots
+
+        def execute_circuit(theta):
+            qc = self.create_qaoa_circuit(theta)
+            counts = execute(qc, backend, seed_simulator=10).result().get_counts()
+
+            return self.compute_expectation(counts)
+
+        return execute_circuit
+
     def create_qaoa_circuit(self, theta):
         """
-        Creates a parametrized QAOA circuit
-        Args:
-            theta: list of unitary parameters
-        Returns:
-            qc: qiskit circuit
+            Creates a parametrized QAOA circuit
+            Args:
+                theta: list of unitary parameters
+            Returns:
+                Circuit for K-Domatic Number
         """
 
         p = len(theta) // 2  # number of alternating unitaries
@@ -318,85 +327,49 @@ class DomaticNumberQAOA:
 
         return qc
 
-    # A function that executes the circuit on the chosen backend
-    def get_expectation(self, shots=512):
-        """
-        Runs parametrized circuit
-        Args:
-            p: int,
-               Number of repetitions of unitaries
-               :param shots: number of repetitions
-        """
-
-        backend = Aer.get_backend('qasm_simulator')
-        backend.shots = shots
-
-        def execute_circuit(theta):
-            qc = self.create_qaoa_circuit(theta)
-            counts = execute(qc, backend, seed_simulator=10).result().get_counts()
-
-            return self.compute_expectation(counts)
-
-        return execute_circuit
-
 
 class Testing:
+    """
+        Contains Testing methods for K-Domatic Number and methods for results output and save.
+    """
+    @staticmethod
+    def get_sorted_counts(counts):
+        counts_prob = {k: v / 1024 for k, v in counts.items()}
+        return sorted(counts_prob.items(), key=lambda x: x[1], reverse=True)  # .OrderBy(x => x.Value)
+
+    def save_results(self, params, counts):
+        with open('1_params_beta_gamma.txt', 'w') as file:
+            file.write(str(params))
+
+        sorted_counts = self.get_sorted_counts(counts)
+
+        with open('2_all_data.json', 'w') as file:
+            file.write(json.dumps(OrderedDict(sorted_counts[:K ** len(nodes) + 8])))
+
+        with open('3_first_results.json', 'w') as file:
+            file.write(json.dumps(OrderedDict(sorted_counts[:64])))
+
+    def plot_counts(self, counts):
+        plot_histogram(counts)
+
+    def plot_sorted_counts(self, counts):
+        plot_histogram(OrderedDict(self.get_sorted_counts(counts)))
+
     @staticmethod
     def k_2_n_1_p_1():
         return 2, [0], [], 1
 
     @staticmethod
-    def k_2_n_2_p_1():
-        return 2, [0, 1], [], 1
-
-    @staticmethod
-    def k_2_n_3_p_1():
-        return 2, [0, 1, 2], [], 1
-
-    @staticmethod
-    def k_2_n_6_p_1():
-        return 2, [0, 1, 2, 3, 4, 5], [], 1
-
-    @staticmethod
-    def k_2_n_6_p_5():
-        return 2, [0, 1, 2, 3, 4, 5], [], 5
-
-    @staticmethod
-    def k_3_n_2_p_1():
-        return 3, [0, 1], [], 1
-
-    @staticmethod
-    def k_3_n_2_p_5():
-        return 3, [0, 1], [], 5
-
-    @staticmethod
-    def k_3_n_3_p_1():
-        return 3, [0, 1, 2], [], 1
-
-    @staticmethod
-    def k_3_n_3_p_7():
-        return 3, [0, 1, 2], [], 7
-
-    @staticmethod
-    def k_3_n_6_p_7():
-        return 3, [0, 1, 2, 3, 4, 5], [], 7
-
-    @staticmethod
-    def k_2_n_3_p_1_second():
-        return 2, [0, 1, 2], [(0, 1), (1, 2)], 1
-
-    @staticmethod
-    def k_2_n_6_p_50_second():
-        return 2, [0, 1, 2, 3, 4, 5], [(0, 1), (1, 2), (3, 4), (4, 5)], 50
-
-    @staticmethod
-    def k_3_n_3_p_1_total():
-        return 3, [0, 1, 2], [(0, 1), (1, 2), (2, 0)], 1
+    def k_2_n_3_p_3():
+        return 1, [0, 1, 2], [(0, 1), (1, 2)], 3
 
 
 if __name__ == '__main__':
-
-    K, nodes, edges, p = Testing.k_3_n_3_p_1_total()
+    #with open('data2.json', 'r') as f:
+    #    t = f.read()
+    #plot_histogram(t)
+    T = Testing()
+    K, nodes, edges, p = T.k_2_n_3_p_3()
 
     # 1. Step - Create Template
     graph = Graph(nodes, edges)
@@ -408,7 +381,6 @@ if __name__ == '__main__':
     # 1.2. Step - Create Problem and Mix Hamiltonian
     qc_problem = dom_number.create_problem_hamiltonian()
     qc_mix = dom_number.create_mix_hamiltonian()
-    qc_problem.draw(output='mpl')
 
     # Demonstrate QAOA circuit template
     qc_qaoa = dom_number.create_qaoa_circuit_template()
@@ -423,32 +395,10 @@ if __name__ == '__main__':
     backend.shots = 512
 
     qc_res = dom_number.create_qaoa_circuit(res.x)  # res.x == theta
-    #qc_res.decompose().decompose().draw(output='mpl')
-
     counts = execute(qc_res, backend, seed_simulator=10).result().get_counts()
 
-    counts_prob = {k: v / 1024 for k, v in counts.items()}
-    sorted_counts = sorted(counts_prob.items(), key=lambda x: x[1], reverse=True)  # .OrderBy(x => x.Value)
+    T.save_results(res.x, counts)
+    T.plot_counts(counts)
+    T.plot_sorted_counts(counts)
 
-    ordered_counts = OrderedDict(sorted_counts[:K**len(nodes)+8])
-
-    json_data = json.dumps(ordered_counts)
-
-    # write JSON string to file
-    with open('data0', 'w') as file:
-        file.write(str(res.x))
-
-    # write JSON string to file
-    with open('data.json', 'w') as file:
-        file.write(json_data)
-
-    with open('data2.json', 'w') as file:
-        file.write(json.dumps(OrderedDict(sorted_counts[:64])))
-
-    with open('data3.json', 'w') as file:
-        file.write(json.dumps(sorted(counts.items(), key=lambda x: x[1], reverse=True)))
-
-    plot_histogram(counts)
-    plot_histogram(ordered_counts)
-
-    print("Problem has been solved successfully")
+    print("The problem results are ready!")
