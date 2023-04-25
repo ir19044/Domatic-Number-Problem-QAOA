@@ -2,6 +2,8 @@
     To create the QAOA for the Domatic Number, the QAOA for the MAX-CUT problem was analyzed.
         https://learn.qiskit.org/course/ch-applications/solving-combinatorial-optimization-problems-using-qaoa
 """
+import os
+
 from qiskit import QuantumCircuit, Aer, execute, QuantumRegister, ClassicalRegister
 from scipy.optimize import minimize
 from qiskit.circuit import Parameter
@@ -10,6 +12,7 @@ import networkx as nx
 import numpy as np
 import json
 from collections import OrderedDict
+from datetime import datetime
 
 
 class Graph:
@@ -311,32 +314,53 @@ class Testing:
     """
         Contains Testing methods for K-Domatic Number and methods for results output and save.
     """
-    @staticmethod
-    def get_sorted_counts(counts):
-        counts_prob = {k: v / 1024 for k, v in counts.items()}
-        return sorted(counts_prob.items(), key=lambda x: x[1], reverse=True)  # .OrderBy(x => x.Value)
+    def __init__(self, outer_path, inner_path):
+        self.outer_path = outer_path
+        self.inner_path = inner_path
+        self.path = os.path.join(outer_path, inner_path)
 
-    def save_results(self, params, counts):
-        with open('1_params_beta_gamma.txt', 'w') as file:
+    def __save_params(self, params):
+        with open(os.path.join(self.path, "params_beta_gamma.txt"), 'w') as file:
             file.write(str(params))
 
-        sorted_counts = self.get_sorted_counts(counts)
+    def __save_counts(self, counts):
+        sorted_counts = self.__get_sorted_counts(counts)
 
-        with open('2_all_data.json', 'w') as file:
+        with open(os.path.join(self.path, "all_data.json"), 'w') as file:
             file.write(json.dumps(OrderedDict(sorted_counts[:K ** len(nodes) + 8])))
 
-        with open('3_first_results.json', 'w') as file:
+        with open(os.path.join(self.path, "first_results.json"), 'w') as file:
             file.write(json.dumps(OrderedDict(sorted_counts[:64])))
+
+    def __save_run_time(self, run_time):
+        with open(os.path.join(self.path, "run_time.txt"), 'w') as file:
+            file.write(str(run_time))
+
+    @staticmethod
+    def __get_sorted_counts(counts):
+        counts_prob = {k: v / 1024 for k, v in counts.items()}
+        return sorted(counts_prob.items(), key=lambda x: x[1], reverse=True)  # OrderBy Value
+
+    def save_results(self, params, counts, run_time):
+        if not os.path.exists(self.outer_path):
+            os.mkdir(self.outer_path)
+
+        if not os.path.exists(self.path):
+            os.mkdir(self.path)
+
+        self.__save_params(params)
+        self.__save_counts(counts)
+        self.__save_run_time(run_time)
 
     def plot_counts(self, counts):
         plot_histogram(counts)
 
     def plot_sorted_counts(self, counts):
-        plot_histogram(OrderedDict(self.get_sorted_counts(counts)))
+        plot_histogram(OrderedDict(self.__get_sorted_counts(counts)))
 
     @staticmethod
-    def k_2_n_1_p_1():
-        return 2, [0], [], 1
+    def g1_n2(k, p):
+        return k, [0, 1], [(0, 1)], p
 
     @staticmethod
     def k_2_n_3_p_3():
@@ -344,39 +368,44 @@ class Testing:
 
 
 if __name__ == '__main__':
+    start_time = datetime.now()
     #with open('data2.json', 'r') as f:
     #    t = f.read()
     #plot_histogram(t)
-    T = Testing()
-    K, nodes, edges, p = T.k_2_n_3_p_3()
+    T = Testing("v1_n2", "k2_p1")
+    K, nodes, edges, p = T.g1_n2(k=2, p=1)
 
-    # 1. Step - Create Template
     graph = Graph(nodes, edges)
-
-    # 1.1. Step - Apply Hadamard
     dom_number = DomaticNumberQAOA(graph, K, p)
-    qc_0 = dom_number.create_hadamard_circuit()
+    """
+        # 0. Step - Create Template
+        # 0.1. Step - Apply Hadamard
+        
+        qc_0 = dom_number.create_hadamard_circuit()
+    
+        # 0.2. Step - Create Problem and Mix Hamiltonian
+        qc_problem = dom_number.create_problem_hamiltonian()
+        qc_mix = dom_number.create_mix_hamiltonian()
+    
+        # Demonstrate QAOA circuit template
+        qc_qaoa = dom_number.create_qaoa_circuit_template()
+        qc_qaoa.draw(output='mpl')
+    """
 
-    # 1.2. Step - Create Problem and Mix Hamiltonian
-    qc_problem = dom_number.create_problem_hamiltonian()
-    qc_mix = dom_number.create_mix_hamiltonian()
-
-    # Demonstrate QAOA circuit template
-    qc_qaoa = dom_number.create_qaoa_circuit_template()
-    qc_qaoa.draw(output='mpl')
-
-    # 2. Step - Calculate expectation
+    # 1. Step - Calculate expectation
     expectation = dom_number.get_expectation()
     res = minimize(expectation, [1.0, 1.0]*p, method='COBYLA')
 
-    # 3. Step - Analyzing the results
+    # 2. Step - Analyzing the results
     backend = Aer.get_backend('aer_simulator')
     backend.shots = 512
 
     qc_res = dom_number.create_qaoa_circuit(res.x)  # res.x == theta
     counts = execute(qc_res, backend, seed_simulator=10, shots=1024).result().get_counts()
 
-    T.save_results(res.x, counts)
+    # Save results
+    end_time = datetime.now()
+    T.save_results(res.x, counts, end_time-start_time)
     T.plot_counts(counts)
     T.plot_sorted_counts(counts)
 
