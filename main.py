@@ -7,6 +7,7 @@ from scipy.optimize import minimize
 from qiskit.circuit import Parameter
 from qiskit.visualization import plot_histogram
 import networkx as nx
+import numpy as np
 import json
 from collections import OrderedDict
 
@@ -24,7 +25,7 @@ class Graph:
         self.graph.add_edges_from(self.edges)
 
     def get_adjacency_matrix(self):
-        return nx.adjacency_matrix(self.graph).todense()
+        return np.array(nx.adjacency_matrix(self.graph).todense())
 
     def draw_graph(self):
         nx.draw(self.graph, with_labels=True, alpha=0.8, node_size=500)
@@ -44,7 +45,7 @@ class DomaticNumberQAOA:
         self.K = k  # Max count of dominating sets
         self.p = p  # Circuit depth
 
-    def _prepare_circuit(self):
+    def __prepare_circuit(self):
         qr = QuantumRegister(self.work_qubit_count, 'q')
         anc = QuantumRegister(1, 'ancilla')
         cr = ClassicalRegister(self.work_qubit_count, 'c')
@@ -61,10 +62,9 @@ class DomaticNumberQAOA:
         row = adjacency_matrix[vertex]  # row corresponding to vertex v
         neighbors = [vertex]
 
-        for i in range(row.shape[0]):
-            for j in range(row.shape[1]):
-                if row[i, j] == 1:
-                    neighbors.append(j)
+        for i in range(len(row)):
+            if row[i] == 1:
+                neighbors.append(i)
 
         return neighbors
 
@@ -81,29 +81,8 @@ class DomaticNumberQAOA:
 
         return work_qubits
 
-    def __get_vertices_qubits_by_set(self, set_number):
-        """
-            Returns:
-                 Numbers of qubits in circuit for the given set.
-        """
-        work_qubits = []
-        vertices = self.graph.get_vertices()
-
-        for vertex in vertices:
-            work_qubits.append(self.__get_neighbors_qubits_by_set_vertex(vertex, set_number))
-
-        return work_qubits
-
-    def __get_qubits_by_dominating_set(self, dom_set):
-        work_qubits = []
-        vertices_count = self.work_qubit_count
-        for qubit in range(dom_set, vertices_count, self.K):
-            work_qubits.append(qubit)
-
-        return work_qubits
-
     def create_hadamard_circuit(self):
-        qc_h = self._prepare_circuit()
+        qc_h = self.__prepare_circuit()
         return self.apply_hadamard(qc_h)
 
     def apply_hadamard(self, qc_h):
@@ -118,7 +97,7 @@ class DomaticNumberQAOA:
         return qc_h
 
     def create_problem_hamiltonian(self):
-        qc_p = self._prepare_circuit()
+        qc_p = self.__prepare_circuit()
 
         return self.apply_problem_hamiltonian(qc_p, Parameter("$\\gamma$"))
 
@@ -184,7 +163,7 @@ class DomaticNumberQAOA:
         return qc_p
 
     def create_mix_hamiltonian(self):
-        qc_m = self._prepare_circuit()
+        qc_m = self.__prepare_circuit()
 
         return self.apply_mix_hamiltonian(qc_m, Parameter("$\\beta$"))
 
@@ -205,7 +184,7 @@ class DomaticNumberQAOA:
             Returns:
                 Circuit for K-Domatic Number.
         """
-        qc = self._prepare_circuit()
+        qc = self.__prepare_circuit()
 
         qc = self.apply_hadamard(qc)
         qc = self.apply_problem_hamiltonian(qc, Parameter("$\\gamma$"))
@@ -311,7 +290,7 @@ class DomaticNumberQAOA:
 
         p = len(theta) // 2  # number of alternating unitaries
 
-        qc = self._prepare_circuit()
+        qc = self.__prepare_circuit()
 
         beta = theta[:p]
         gamma = theta[p:]
@@ -361,7 +340,7 @@ class Testing:
 
     @staticmethod
     def k_2_n_3_p_3():
-        return 1, [0, 1, 2], [(0, 1), (1, 2)], 3
+        return 2, [0, 1, 2], [(0, 1), (1, 2)], 3
 
 
 if __name__ == '__main__':
@@ -387,7 +366,7 @@ if __name__ == '__main__':
     qc_qaoa.draw(output='mpl')
 
     # 2. Step - Calculate expectation
-    expectation = dom_number.get_expectation(2048)
+    expectation = dom_number.get_expectation()
     res = minimize(expectation, [1.0, 1.0]*p, method='COBYLA')
 
     # 3. Step - Analyzing the results
@@ -395,7 +374,7 @@ if __name__ == '__main__':
     backend.shots = 512
 
     qc_res = dom_number.create_qaoa_circuit(res.x)  # res.x == theta
-    counts = execute(qc_res, backend, seed_simulator=10).result().get_counts()
+    counts = execute(qc_res, backend, seed_simulator=10, shots=1024).result().get_counts()
 
     T.save_results(res.x, counts)
     T.plot_counts(counts)
