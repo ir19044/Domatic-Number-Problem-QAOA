@@ -314,10 +314,11 @@ class Testing:
     """
         Contains Testing methods for K-Domatic Number and methods for results output and save.
     """
-    def __init__(self, outer_path, inner_path):
-        self.outer_path = outer_path
-        self.inner_path = inner_path
-        self.path = os.path.join(outer_path, inner_path)
+    def __init__(self, test_case_path, k, p):
+        self.testing_map = "Testing_results"
+        self.test_case_path = os.path.join(self.testing_map, test_case_path)
+        self.inner_path = "k" + str(k) + "_p" + str(p)
+        self.path = os.path.join(self.testing_map, test_case_path, self.inner_path)
 
     def __save_params(self, params):
         with open(os.path.join(self.path, "params_beta_gamma.txt"), 'w') as file:
@@ -327,10 +328,10 @@ class Testing:
         sorted_counts = self.__get_sorted_counts(counts)
 
         with open(os.path.join(self.path, "all_data.json"), 'w') as file:
-            file.write(json.dumps(OrderedDict(sorted_counts[:K ** len(nodes) + 8])))
+            file.write(json.dumps(OrderedDict(sorted_counts[:K ** len(nodes) + 8]), indent=4))
 
         with open(os.path.join(self.path, "first_results.json"), 'w') as file:
-            file.write(json.dumps(OrderedDict(sorted_counts[:64])))
+            file.write(json.dumps(OrderedDict(sorted_counts[:64]), indent=4))
 
     def __save_run_time(self, run_time):
         with open(os.path.join(self.path, "run_time.txt"), 'w') as file:
@@ -342,8 +343,11 @@ class Testing:
         return sorted(counts_prob.items(), key=lambda x: x[1], reverse=True)  # OrderBy Value
 
     def save_results(self, params, counts, run_time):
-        if not os.path.exists(self.outer_path):
-            os.mkdir(self.outer_path)
+        if not os.path.exists(self.testing_map):
+            os.mkdir(self.testing_map)
+
+        if not os.path.exists(self.test_case_path):
+            os.mkdir(self.test_case_path)
 
         if not os.path.exists(self.path):
             os.mkdir(self.path)
@@ -363,8 +367,8 @@ class Testing:
         return k, [0, 1], [(0, 1)], p
 
     @staticmethod
-    def k_2_n_3_p_3():
-        return 2, [0, 1, 2], [(0, 1), (1, 2)], 3
+    def g2_n3(k, p):
+        return k, [0, 1, 2], [(0, 1), (1, 2)], p
 
 
 if __name__ == '__main__':
@@ -372,8 +376,10 @@ if __name__ == '__main__':
     #with open('data2.json', 'r') as f:
     #    t = f.read()
     #plot_histogram(t)
-    T = Testing("v1_n2", "k2_p1")
-    K, nodes, edges, p = T.g1_n2(k=2, p=1)
+    k = 2
+    p = 5
+    T = Testing("g2_n3", k, p)
+    K, nodes, edges, p = T.g2_n3(k, p)
 
     graph = Graph(nodes, edges)
     dom_number = DomaticNumberQAOA(graph, K, p)
