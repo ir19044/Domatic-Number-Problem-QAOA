@@ -2,8 +2,8 @@
     To create the QAOA for the Domatic Number, the QAOA for the MAX-CUT problem was analyzed.
         https://learn.qiskit.org/course/ch-applications/solving-combinatorial-optimization-problems-using-qaoa
 """
+import itertools
 import os
-
 import matplotlib.pyplot as plt
 from qiskit import QuantumCircuit, Aer, execute, QuantumRegister, ClassicalRegister
 from scipy.optimize import minimize
@@ -14,7 +14,6 @@ import numpy as np
 import json
 from collections import OrderedDict
 from datetime import datetime
-import random
 
 
 class Graph:
@@ -226,7 +225,7 @@ class DomaticNumberQAOA:
         """
             Computes expectation value based on measurement results
             Args:
-                Dict (key,value)=(bitstring, count)
+                counts: Dict (key,value)=(bitstring, count)
             Returns:
                 Expectation value
         """
@@ -338,13 +337,24 @@ class Testing:
     """
         Contains Testing methods for K-Domatic Number and methods for results output and save.
     """
-    def __init__(self, test_case_path, k, p):
-        self.testing_map = "Testing_results"
+    def __init__(self, test_case_path, n, k, p, shots_count):
+        """
+            Save test in ./testing_map/test_case_path/inner_path
+        """
+        self.testing_map = "Testing_results-2048"
         self.test_case_path = os.path.join(self.testing_map, test_case_path)
         self.inner_path = "k" + str(k) + "_p" + str(p)
         self.path = os.path.join(self.testing_map, test_case_path, self.inner_path)
 
+        self.n = n
+        self.k = k
+        self.p = p
+        self.shots_count = shots_count
+
     def __save_params(self, params):
+        """
+            Save gamma, beta params for QAOA
+        """
         with open(os.path.join(self.path, "params_beta_gamma.txt"), 'w') as file:
             file.write(str(params))
 
@@ -361,10 +371,19 @@ class Testing:
         with open(os.path.join(self.path, "run_time.txt"), 'w') as file:
             file.write(str(run_time))
 
-    @staticmethod
-    def __get_sorted_counts(counts):
-        counts_prob = {k: v / 1024 for k, v in counts.items()}
+    def __get_sorted_counts(self, counts):
+        """
+            Order counts by y (Probability) desc
+        """
+        counts_prob = {k: v / self.shots_count for k, v in counts.items()}
         return sorted(counts_prob.items(), key=lambda x: x[1], reverse=True)  # OrderBy Value
+
+    @staticmethod
+    def __get_outer_file(file_name):
+        with open(file_name, 'r') as f:
+            data = json.loads(f.read())
+
+        return data
 
     def save_results(self, params, counts, run_time):
         if not os.path.exists(self.testing_map):
@@ -380,150 +399,170 @@ class Testing:
         self.__save_counts(counts)
         self.__save_run_time(run_time)
 
-    def plot_counts(self, counts):
-        plot_histogram(counts)
+    @staticmethod
+    def plot_counts(counts): plot_histogram(counts)
 
-    def plot_sorted_counts(self, counts):
-        plot_histogram(OrderedDict(self.__get_sorted_counts(counts)))
+    def plot_sorted_counts(self, counts): plot_histogram(OrderedDict(self.__get_sorted_counts(counts)))
+
+    def plot_processed_results(self, output_file_name, expected_answers, value_limit, execution_time, rot_angle):
+        data = self.__get_outer_file(output_file_name)
+
+        data_top = {key: val for key, val in data.items() if key in expected_answers}
+        data_oth = {key: val for key, val in data.items() if key not in expected_answers}
+
+        keys = list(data_top.keys()) + list(data_oth.keys())
+        values = list(data_top.values()) + list(data_oth.values())
+        colors = ['darkseagreen' if key in correct_answers else 'indianred' for key in keys]
+
+        fig, ax = plt.subplots()
+        ax.bar(keys[:value_limit], values[:value_limit], color=colors)
+        ax.set_xticklabels(keys, rotation=rot_angle)
+
+        plt.ylabel('Probabilities')
+
+        title = 'n='+str(self.n)+', k='+str(self.k)+', p='+str(self.p)+', Time='+execution_time
+        title += ', Shots='+str(self.shots_count)
+        plt.title(title, fontsize=25)
+
+        plt.show()
 
     @staticmethod
-    def g1_n2(k, p):
-        return k, [0, 1], [(0, 1)], p
+    def g1_n2(): return [0, 1], [(0, 1)]
 
     @staticmethod
-    def g2_n3(k, p):
-        return k, [0, 1, 2], [(1, 2), (0, 1)], p
+    def g2_n3(): return [0, 1, 2], [(1, 2), (0, 1)]
 
     @staticmethod
-    def g3_n3(k, p):
-        return k, [0, 1, 2], [(0, 1), (1, 2), (0, 2)], p
+    def g3_n3(): return [0, 1, 2], [(0, 1), (1, 2), (0, 2)]
 
     @staticmethod
-    def g4_n4(k, p):
-        return k, [0, 1, 2, 3], [(0, 1), (1, 3), (3, 2), (2, 0), (0, 3), (1, 2)], p
+    def g4_n4(): return [0, 1, 2, 3], [(0, 1), (1, 3), (3, 2), (2, 0), (0, 3), (1, 2)]
 
     @staticmethod
-    def g5_n4(k, p):
-        return k, [0, 1, 2, 3], [(0, 1), (1, 3), (3, 2), (2, 0), (0, 3)], p
+    def g5_n4(): return [0, 1, 2, 3], [(0, 1), (1, 3), (3, 2), (2, 0), (0, 3)]
 
     @staticmethod
-    def g6_n4(k, p):
-        return k, [0, 1, 2, 3], [(0, 1), (1, 3), (3, 2), (2, 0)], p
+    def g6_n4(): return [0, 1, 2, 3], [(0, 1), (1, 3), (3, 2), (2, 0)]
 
     @staticmethod
-    def g7_n4(k, p):
-        return k, [0, 1, 2, 3], [(0, 1), (1, 2), (2, 3)], p
+    def g7_n4(): return [0, 1, 2, 3], [(0, 1), (1, 2), (2, 3)]
 
     @staticmethod
-    def g8_n4(k, p):
-        return k, [0, 1, 2, 3], [(0, 1), (1, 2), (2, 0), (2, 3)], p
+    def g8_n4(): return [0, 1, 2, 3], [(0, 1), (1, 2), (2, 0), (2, 3)]
 
     @staticmethod
-    def g9_n4(k, p):
-        return k, [0, 1, 2, 3], [(0, 1), (2, 3)], p
+    def g9_n4(): return [0, 1, 2, 3], [(0, 1), (2, 3)]
 
     @staticmethod
-    def g10_n5(k, p):
-        return k, [0, 1, 2, 3, 4], [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0), (0, 2), (0, 3), (1, 3), (1, 4), (2, 4)], p
+    def g10_n5(): return [0, 1, 2, 3, 4], [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0), (0, 2), (0, 3), (1, 3), (1, 4), (2, 4)]
 
     @staticmethod
-    def g11_n5(k, p):
-        return k, [0, 1, 2, 3, 4], [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0), (0, 2), (0, 3)], p
+    def g11_n5(): return [0, 1, 2, 3, 4], [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0), (0, 2), (0, 3)]
 
     @staticmethod
-    def g12_n5(k, p):
-        return k, [0, 1, 2, 3, 4], [(0, 1), (1, 2), (2, 0), (3, 4)], p
+    def g12_n5(): return [0, 1, 2, 3, 4], [(0, 1), (1, 2), (2, 0), (3, 4)]
 
     @staticmethod
-    def g13_n5(k, p):
-        return k, [0, 1, 2, 3, 4], [(0, 1), (1, 2), (2, 0), (1, 3), (2, 3), (3, 4)], p
+    def g13_n5(): return [0, 1, 2, 3, 4], [(0, 1), (1, 2), (2, 0), (1, 3), (2, 3), (3, 4)]
 
     @staticmethod
-    def g14_n6(k, p):
-        return k, [0, 1, 2, 3, 4, 5], [(0, 1), (1, 2), (2, 0), (3, 4), (4, 5), (5, 3)], p
+    def g14_n6(): return [0, 1, 2, 3, 4, 5], [(0, 1), (1, 2), (2, 0), (3, 4), (4, 5), (5, 3)]
 
     @staticmethod
-    def g15_n6(k, p):
-        return k, [0, 1, 2, 3, 4, 5], [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0)], p
+    def g15_n6(): return [0, 1, 2, 3, 4, 5], [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0)]
 
     @staticmethod
-    def g16_n6(k, p):
-        return k, [0, 1, 2, 3, 4, 5], [(0, 1), (0, 2), (0, 3), (0, 4), (0, 5)], p
+    def g16_n6(): return [0, 1, 2, 3, 4, 5], [(0, 1), (0, 2), (0, 3), (0, 4), (0, 5)]
+
+    @staticmethod
+    def g1_n2_k2_expected_results(): return ['0110', '1001']
+
+    @staticmethod
+    def g2_n3_k2_expected_results(): return ['011001', '100110']
+
+    @staticmethod
+    def g3_n3_k3_expected_results(): return ['100010001', '100001010', '010100001',
+                                             '010001100', '001100010', '001010100']
+
+    @staticmethod
+    def g4_n4_k3_expected_results():
+        templates = ['1231', '1232', '1233']
+        raw_perms = set()
+        for t in templates:
+            raw_perms = raw_perms | set(map(''.join, itertools.permutations(t)))
+
+        mapping = {'1': '100', '2': '010', '3': '001'}
+        perms = {"".join(mapping.get(bit, bit) for bit in value) for value in raw_perms}
+
+        return perms
+
+    @staticmethod
+    def g4_n4_k4_expected_results():
+        raw_perms = set()
+        raw_perms = raw_perms | set(map(''.join, itertools.permutations('1234')))
+
+        mapping = {'1': '1000', '2': '0100', '3': '0010', '4': '0001'}
+        perms = {"".join(mapping.get(bit, bit) for bit in value) for value in raw_perms}
+
+        return perms
+
+    @staticmethod
+    def g5_n4_k2_expected_results():
+        return ['10010101', '01101010', '10101001', '01010110',
+                '01011010', '10100101', '01100110', '10011001', '01101001', '10010110']
+
+    @staticmethod
+    def g5_n4_k3_expected_results(): return ['100010010001', '100001001010', '010100100001',
+                                             '010001001100', '001100100010', '001010010100']
+
+    @staticmethod
+    def g6_n4_k2_expected_results(): return ['01011010', '10100101', '01100110', '10010110',
+                                             '10011001', '01100110', '10011001', '01101001']
+
+    @staticmethod
+    def g7_n4_k2_expected_results(): return ['01100110', '10011001', '01101001', '10010110']
 
 
 if __name__ == '__main__':
+    N = 4
+    K = 2
+    p = 20
+    shots = 1024
+    T = Testing("g6_n4", N, K, p, shots)
+    nodes, edges = T.g6_n4()
+
+    correct_answers = T.g7_n4_k2_expected_results()
+    T.plot_processed_results("all_data.json", correct_answers, value_limit=25, execution_time='0:09:33', rot_angle=50)
+
     start_time = datetime.now()
-    """
-    with open('first_results.json', 'r') as f:
-        data = json.loads(f.read())
-
-    correct_answers = ['011001', '100110', '010110', '101001', '100101', '011010']
-    data_top = {key: val for key, val in data.items() if key in correct_answers}
-    data_rest = {key: val for key, val in data.items() if key not in correct_answers}
-
-    keys = list(data_top.keys()) + list(data_rest.keys())
-
-    values = list(data_top.values()) + list(data_rest.values())
-
-
-
-    colors = ['darkseagreen' if key in correct_answers else 'indianred' for key in keys]
-
-   # plt.bar(keys, values, color=colors )
-
-
-    fig, ax = plt.subplots()
-    ax.bar(keys, values, color=colors)
-
-    ax.set_xticklabels(keys, rotation=70)
-    plt.xlabel( 'Answers')
-    #ax.xaxis.set_label_coords(1.05, -0.1)
-
-    plt.ylabel ('Probabilities')
-    plt.title ('n=3, k=2, p=10, Time=0:00:57')
-
-    plt.show()
-
-    #plot_histogram(data_sorted, sort='value_desc')
-    plt.show()
-    plot_histogram(data)
-    """
-    k = 2
-    p = 5
-    T = Testing("g12_n5", k, p)
-    K, nodes, edges, p = T.g12_n5(k, p)
-
     G = Graph(nodes, edges)
-
-    #G.graph_drawing(filename='Complex_model11.png')
-
-    dom_number = DomaticNumberQAOA(G, K, p)
+    DN = DomaticNumberQAOA(G, K, p)
 
     """
-        # 0. Step - Create Template
-        # 0.1. Step - Apply Hadamard
-    
-        qc_0 = dom_number.create_hadamard_circuit()
-    
-        # 0.2. Step - Create Problem and Mix Hamiltonian
-        qc_problem = dom_number.create_problem_hamiltonian()
-        qc_mix = dom_number.create_mix_hamiltonian()
-    
-        # Demonstrate QAOA circuit template
-        qc_qaoa = dom_number.create_qaoa_circuit_template()
-        qc_qaoa.draw(output='mpl')
+    # 0. Step - Create Template
+    # 0.1. Step - Apply Hadamard
+
+    qc_0 = DN.create_hadamard_circuit()
+
+    # 0.2. Step - Create Problem and Mix Hamiltonian
+    qc_problem = DN.create_problem_hamiltonian()
+    qc_mix = DN.create_mix_hamiltonian()
+
+    # Demonstrate QAOA circuit template
+    qc_qaoa = DN.create_qaoa_circuit_template()
+    qc_qaoa.draw(output='mpl')
     """
 
     # 1. Step - Calculate expectation
-    expectation = dom_number.get_expectation()
+    expectation = DN.get_expectation()
     res = minimize(expectation, [1.0, 1.0]*p, method='COBYLA')
 
     # 2. Step - Analyzing the results
     backend = Aer.get_backend('aer_simulator')
     backend.shots = 512
 
-    qc_res = dom_number.create_qaoa_circuit(res.x)  # res.x == theta
-    counts = execute(qc_res, backend, seed_simulator=10, shots=1024).result().get_counts()
+    qc_res = DN.create_qaoa_circuit(res.x)  # res.x == theta
+    counts = execute(qc_res, backend, seed_simulator=10, shots=shots).result().get_counts()
 
     # Save results
     end_time = datetime.now()
