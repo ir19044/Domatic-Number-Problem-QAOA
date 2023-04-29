@@ -522,17 +522,24 @@ class Testing:
     @staticmethod
     def g7_n4_k2_expected_results(): return ['01100110', '10011001', '01101001', '10010110']
 
+    @staticmethod
+    def g8_n4_k2_expected_results(): return ['01011001', '10100110', '01011010', '10100101',
+                                             '01100110', '10011001', '01101001', '10010110']
+
+    @staticmethod
+    def g9_n4_k2_expected_results(): return ['01100110', '01101001', '10010110', '10011001']
+
 
 if __name__ == '__main__':
     N = 4
     K = 2
-    p = 20
-    shots = 1024
-    T = Testing("g6_n4", N, K, p, shots)
-    nodes, edges = T.g6_n4()
+    p = 5
+    shots = 2048
+    T = Testing("g9_n4", N, K, p, shots)
+    nodes, edges = T.g9_n4()
 
-    correct_answers = T.g7_n4_k2_expected_results()
-    T.plot_processed_results("all_data.json", correct_answers, value_limit=25, execution_time='0:09:33', rot_angle=50)
+    correct_answers = T.g9_n4_k2_expected_results()
+    T.plot_processed_results("all_data.json", correct_answers, value_limit=25, execution_time='0:02:29', rot_angle=50)
 
     start_time = datetime.now()
     G = Graph(nodes, edges)
