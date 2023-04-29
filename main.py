@@ -4,6 +4,7 @@
 """
 import os
 
+import matplotlib.pyplot as plt
 from qiskit import QuantumCircuit, Aer, execute, QuantumRegister, ClassicalRegister
 from scipy.optimize import minimize
 from qiskit.circuit import Parameter
@@ -13,6 +14,7 @@ import numpy as np
 import json
 from collections import OrderedDict
 from datetime import datetime
+import random
 
 
 class Graph:
@@ -32,6 +34,27 @@ class Graph:
 
     def draw_graph(self):
         nx.draw(self.graph, with_labels=True, alpha=0.8, node_size=500)
+        plt.show()
+
+    def graph_drawing(self, **kwargs):
+        figure, axes = plt.subplots(frameon=False)
+        axes.axis('off')
+        # Turn off tick labels
+        req_dpi = 100
+        figure.set_size_inches(500 / float(req_dpi), 500 / float(req_dpi))
+        self.draw_raw_graph()
+
+        plt.show()
+
+    def draw_raw_graph(self):
+        colors = ['cornflowerblue' for node in self.graph.nodes()]
+        default_axes = plt.axes(frameon=False)
+        random_pos = nx.random_layout(self.graph, seed=42)
+        pos = nx.spring_layout(self.graph, pos=random_pos)
+
+        nx.draw_networkx_nodes(self.graph, node_color=colors, node_size=900, pos=pos, alpha=1, ax=default_axes)
+        nx.draw_networkx_edges(self.graph, pos=pos, width=8, alpha=1, ax=default_axes, edge_color="tab:gray")
+        nx.draw_networkx_labels(self.graph, pos=pos, font_size=22, font_color="w")
 
 
 class DomaticNumberQAOA:
@@ -124,7 +147,7 @@ class DomaticNumberQAOA:
                 Check that each vertex belongs to only one set.
         """
         if self.K > 2:
-            for qubit in range(0, self.work_qubit_count, self.K):
+            for qubit in range(0, self.work_qubit_count):
                 qc_p.rz(2 * gamma, qubit)
 
         for i in range(0, self.work_qubit_count, self.K):  # for each vertex
@@ -154,8 +177,9 @@ class DomaticNumberQAOA:
 
                 qc_p.mcx(work_qubits, ancilla_qubit)  # C..C NOT, Controlled: each vertex, Target: ancilla
 
-                for i in work_qubits:  # Controlled RZ, Controlled: ancilla, Target: each vertex
-                    qc_p.crz(2 * gamma, ancilla_qubit, i)
+                #for i in work_qubits:  # Controlled RZ, Controlled: ancilla, Target: each vertex
+                #    qc_p.crz(2 * gamma, ancilla_qubit, i)
+                qc_p.rz(2 * gamma, ancilla_qubit)
 
                 qc_p.mcx(work_qubits, ancilla_qubit)  # C..C NOT, Controlled: each vertex, Target: ancilla
 
@@ -328,7 +352,7 @@ class Testing:
         sorted_counts = self.__get_sorted_counts(counts)
 
         with open(os.path.join(self.path, "all_data.json"), 'w') as file:
-            file.write(json.dumps(OrderedDict(sorted_counts[:K ** len(nodes) + 8]), indent=4))
+            file.write(json.dumps(OrderedDict(sorted_counts[:2 ** (K * len(nodes))]), indent=4))
 
         with open(os.path.join(self.path, "first_results.json"), 'w') as file:
             file.write(json.dumps(OrderedDict(sorted_counts[:64]), indent=4))
@@ -368,25 +392,117 @@ class Testing:
 
     @staticmethod
     def g2_n3(k, p):
-        return k, [0, 1, 2], [(0, 1), (1, 2)], p
+        return k, [0, 1, 2], [(1, 2), (0, 1)], p
+
+    @staticmethod
+    def g3_n3(k, p):
+        return k, [0, 1, 2], [(0, 1), (1, 2), (0, 2)], p
+
+    @staticmethod
+    def g4_n4(k, p):
+        return k, [0, 1, 2, 3], [(0, 1), (1, 3), (3, 2), (2, 0), (0, 3), (1, 2)], p
+
+    @staticmethod
+    def g5_n4(k, p):
+        return k, [0, 1, 2, 3], [(0, 1), (1, 3), (3, 2), (2, 0), (0, 3)], p
+
+    @staticmethod
+    def g6_n4(k, p):
+        return k, [0, 1, 2, 3], [(0, 1), (1, 3), (3, 2), (2, 0)], p
+
+    @staticmethod
+    def g7_n4(k, p):
+        return k, [0, 1, 2, 3], [(0, 1), (1, 2), (2, 3)], p
+
+    @staticmethod
+    def g8_n4(k, p):
+        return k, [0, 1, 2, 3], [(0, 1), (1, 2), (2, 0), (2, 3)], p
+
+    @staticmethod
+    def g9_n4(k, p):
+        return k, [0, 1, 2, 3], [(0, 1), (2, 3)], p
+
+    @staticmethod
+    def g10_n5(k, p):
+        return k, [0, 1, 2, 3, 4], [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0), (0, 2), (0, 3), (1, 3), (1, 4), (2, 4)], p
+
+    @staticmethod
+    def g11_n5(k, p):
+        return k, [0, 1, 2, 3, 4], [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0), (0, 2), (0, 3)], p
+
+    @staticmethod
+    def g12_n5(k, p):
+        return k, [0, 1, 2, 3, 4], [(0, 1), (1, 2), (2, 0), (3, 4)], p
+
+    @staticmethod
+    def g13_n5(k, p):
+        return k, [0, 1, 2, 3, 4], [(0, 1), (1, 2), (2, 0), (1, 3), (2, 3), (3, 4)], p
+
+    @staticmethod
+    def g14_n6(k, p):
+        return k, [0, 1, 2, 3, 4, 5], [(0, 1), (1, 2), (2, 0), (3, 4), (4, 5), (5, 3)], p
+
+    @staticmethod
+    def g15_n6(k, p):
+        return k, [0, 1, 2, 3, 4, 5], [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0)], p
+
+    @staticmethod
+    def g16_n6(k, p):
+        return k, [0, 1, 2, 3, 4, 5], [(0, 1), (0, 2), (0, 3), (0, 4), (0, 5)], p
 
 
 if __name__ == '__main__':
     start_time = datetime.now()
-    #with open('data2.json', 'r') as f:
-    #    t = f.read()
-    #plot_histogram(t)
+    """
+    with open('first_results.json', 'r') as f:
+        data = json.loads(f.read())
+
+    correct_answers = ['011001', '100110', '010110', '101001', '100101', '011010']
+    data_top = {key: val for key, val in data.items() if key in correct_answers}
+    data_rest = {key: val for key, val in data.items() if key not in correct_answers}
+
+    keys = list(data_top.keys()) + list(data_rest.keys())
+
+    values = list(data_top.values()) + list(data_rest.values())
+
+
+
+    colors = ['darkseagreen' if key in correct_answers else 'indianred' for key in keys]
+
+   # plt.bar(keys, values, color=colors )
+
+
+    fig, ax = plt.subplots()
+    ax.bar(keys, values, color=colors)
+
+    ax.set_xticklabels(keys, rotation=70)
+    plt.xlabel( 'Answers')
+    #ax.xaxis.set_label_coords(1.05, -0.1)
+
+    plt.ylabel ('Probabilities')
+    plt.title ('n=3, k=2, p=10, Time=0:00:57')
+
+    plt.show()
+
+    #plot_histogram(data_sorted, sort='value_desc')
+    plt.show()
+    plot_histogram(data)
+    """
     k = 2
     p = 5
-    T = Testing("g2_n3", k, p)
-    K, nodes, edges, p = T.g2_n3(k, p)
+    T = Testing("g12_n5", k, p)
+    K, nodes, edges, p = T.g12_n5(k, p)
 
-    graph = Graph(nodes, edges)
-    dom_number = DomaticNumberQAOA(graph, K, p)
+    G = Graph(nodes, edges)
+
+    #G.graph_drawing(filename='Complex_model11.png')
+
+    dom_number = DomaticNumberQAOA(G, K, p)
+
     """
         # 0. Step - Create Template
         # 0.1. Step - Apply Hadamard
-        
+    
         qc_0 = dom_number.create_hadamard_circuit()
     
         # 0.2. Step - Create Problem and Mix Hamiltonian
