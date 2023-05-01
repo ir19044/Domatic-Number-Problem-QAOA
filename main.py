@@ -341,7 +341,7 @@ class Testing:
         """
             Save test in ./testing_map/test_case_path/inner_path
         """
-        self.testing_map = "Testing_results-2048"
+        self.testing_map = "Testing_results"
         self.test_case_path = os.path.join(self.testing_map, test_case_path)
         self.inner_path = "k" + str(k) + "_p" + str(p)
         self.path = os.path.join(self.testing_map, test_case_path, self.inner_path)
@@ -379,8 +379,11 @@ class Testing:
         return sorted(counts_prob.items(), key=lambda x: x[1], reverse=True)  # OrderBy Value
 
     @staticmethod
-    def __get_outer_file(file_name):
+    def get_outer_file(file_name):
         with open(file_name, 'r') as f:
+            #contents = f.read()
+            #data = [float(x) for x in contents[1:-1].split()]
+            #return data
             data = json.loads(f.read())
 
         return data
@@ -405,7 +408,7 @@ class Testing:
     def plot_sorted_counts(self, counts): plot_histogram(OrderedDict(self.__get_sorted_counts(counts)))
 
     def plot_processed_results(self, output_file_name, expected_answers, value_limit, execution_time, rot_angle):
-        data = self.__get_outer_file(output_file_name)
+        data = self.get_outer_file(output_file_name)
 
         data_top = {key: val for key, val in data.items() if key in expected_answers}
         data_oth = {key: val for key, val in data.items() if key not in expected_answers}
@@ -529,17 +532,79 @@ class Testing:
     @staticmethod
     def g9_n4_k2_expected_results(): return ['01100110', '01101001', '10010110', '10011001']
 
+    @staticmethod
+    def g10_n5_k3_expected_results():
+        templates = ['12311', '12312', '12322', '12313', '12323', '12333']
+        raw_perms = set()
+        for t in templates:
+            raw_perms = raw_perms | set(map(''.join, itertools.permutations(t)))
+
+        mapping = {'1': '100', '2': '010', '3': '001'}
+        perms = {"".join(mapping.get(bit, bit) for bit in value) for value in raw_perms}
+
+        return perms
+
+
+    @staticmethod
+    def g10_n5_k4_expected_results():
+        templates = ['12341', '12342', '12343', '12344']
+        raw_perms = set()
+        for t in templates:
+            raw_perms = raw_perms | set(map(''.join, itertools.permutations(t)))
+
+        mapping = {'1': '1000', '2': '0100', '3': '0010', '4': '0001'}
+        perms = {"".join(mapping.get(bit, bit) for bit in value) for value in raw_perms}
+
+        return perms
+
+    @staticmethod
+    def g11_n5_k3_expected_results():
+        return ['100010001010001', '100001010001010', '100010001001010', '100001010010001',
+                '010100001100001', '010001100001100', '010100001001100', '010001100100001',
+                '001100010100010', '001010100010100', '001100010010100', '001010100100010']
+
+    @staticmethod
+    def g12_n5_k2_expected_results():
+        return ['0101100110', '0101101001', '1010010110', '1010011001',
+                '0110010110', '0110011001', '1001100110', '1001101001',
+                '0110100110', '0110101001', '1001010110', '1001011001']
+
+    @staticmethod
+    def g13_n5_k2_expected_results():
+        return ['0110100110', '1001011001', '0110101001', '1001010110',
+                '1001100110', '0110011001', '1001101001', '0110010110',
+                '1010010110', '0101101001', '1010011001', '0101100110']
+
+    @staticmethod
+    def g14_n6_k3_expected_results():
+        l = ['100010001', '100001010', '010100001', '010001100', '001100010', '001010100']
+
+        answers = []
+        for i in l:
+            for j in l:
+                answers.append(i + j)
+        return answers
+
+    @staticmethod
+    def g15_n6_k3_expected_results():
+        return ['001010100001010100', '001100010001100010', '010001100010001100',
+                '010100001010100001', '100001010100001010', '100010001100010001']
+
+    @staticmethod
+    def g16_n6_k2_expected_results():
+        return ['011010101010', '100101010101']
+
 
 if __name__ == '__main__':
-    N = 4
+    N = 6
     K = 2
-    p = 5
-    shots = 2048
-    T = Testing("g9_n4", N, K, p, shots)
-    nodes, edges = T.g9_n4()
+    p = 30
+    shots = 65536
+    T = Testing("g16_n6", N, K, p, shots)
+    nodes, edges = T.g16_n6()
 
-    correct_answers = T.g9_n4_k2_expected_results()
-    T.plot_processed_results("all_data.json", correct_answers, value_limit=25, execution_time='0:02:29', rot_angle=50)
+    correct_answers = T.g16_n6_k2_expected_results()
+    T.plot_processed_results("all_data.json", correct_answers, value_limit=45, execution_time='0:25:56', rot_angle=40)
 
     start_time = datetime.now()
     G = Graph(nodes, edges)
@@ -563,6 +628,7 @@ if __name__ == '__main__':
     # 1. Step - Calculate expectation
     expectation = DN.get_expectation()
     res = minimize(expectation, [1.0, 1.0]*p, method='COBYLA')
+    #res = T.get_outer_file("params_beta_gamma.txt")
 
     # 2. Step - Analyzing the results
     backend = Aer.get_backend('aer_simulator')
